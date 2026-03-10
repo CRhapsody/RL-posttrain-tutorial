@@ -1,0 +1,52 @@
+model:
+  model_name_or_path: "Qwen/Qwen2.5-0.5B"
+  tokenizer_name: null  # defaults to model_name_or_path
+
+algorithm:
+  name: "ppo"
+  clip_eps: 0.2
+  vf_coef: 0.5
+  kl_coef: 0.1
+  gamma: 1.0
+  lam: 0.95
+  ppo_epochs: 4
+  num_mini_batches: 2
+  max_grad_norm: 1.0
+
+training:
+  lr: 1.0e-6
+  critic_lr: 1.0e-5
+  batch_size: 4
+  max_steps: 500
+  log_interval: 1
+  save_interval: 100
+  save_dir: "./checkpoints/ppo"
+
+generation:
+  max_new_tokens: 256
+  temperature: 1.0
+  top_p: 1.0
+  do_sample: true
+
+data:
+  source: "list"    # "list" | "hf_dataset" | "jsonl"
+  prompts:
+    - "Explain the theory of relativity in simple terms."
+    - "Write a short poem about the ocean."
+    - "What are the benefits of exercise?"
+    - "Describe how a computer works to a child."
+  max_prompt_length: 512
+
+fsdp:
+  sharding_strategy: "full_shard"
+  mixed_precision: "bf16"
+  cpu_offload: false
+
+reward:
+  type: "length"
+  target_length: 100
+
+wandb:
+  enabled: false
+  project: "rl-posttrain"
+  name: null
