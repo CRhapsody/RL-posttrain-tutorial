@@ -502,6 +502,114 @@ for layer in layers:
 
 ---
 
+## RLVR 数学验证 Reward 详解
+
+### 什么是 RLVR？
+
+RLVR（Reinforcement Learning with Verifiable Rewards）的核心思想：**不用人类标注偏好，而是用可程序化验证的方式给奖励**。
+
+传统 RLHF 流程：模型回答 → 人类打分 → 训练 reward model → 用 reward model 打分
+RLVR 流程：模型回答 → **程序自动验证答案是否正确** → 直接给 0/1 奖励
+
+数学题是天然的 RLVR 场景——答案有唯一正确解，可以用 sympy 做符号化验证。
+
+### 实现架构
+
+```
+Prompt (含标准答案)          Response (模型输出)
+"Solve: 2x+6=20              "Let me solve step by step.
+ <answer>7</answer>"           2x = 14, so x = 7.
+       │                       The answer is \\boxed{7}"
+       ▼                              │
+extract_ground_truth()         extract_answer()
+       │                              │
+       ▼                              ▼
+   gold_str = "7"              pred_str = "7"
+       │                              │
+       └──────────┬───────────────────┘
+                  ▼
+          sympy_equal("7", "7")
+                  │
+          normalize_expr → sympy.sympify
+          simplify(pred - gold) == 0 ?
+                  │
+                  ▼
+          reward = 1.0 (correct)
+          + format_reward bonus
+```
+
+### 三层答案提取
+
+**从模型响应中提取预测答案** `extract_answer(response)`：
+
+| 优先级 | 模式 | 示例 | 说明 |
+|--------|------|------|------|
+| 1 | `\boxed{...}` | `\boxed{7}` | LaTeX 标准，DeepSeek-R1 等模型常用 |
+| 2 | "The answer is ..." | `The final answer is 7.` | 自然语言表述 |
+| 3 | 最后一个数字 | `...so x = 7` | 兜底：取响应中最后出现的数字 |
+
+**从 prompt 中提取标准答案** `extract_ground_truth(prompt)`：
+
+| 格式 | 示例 | 说明 |
+|------|------|------|
+| `<answer>...</answer>` | `<answer>7</answer>` | 自定义 XML 标签 |
+| `[ANSWER: ...]` | `[ANSWER: 3/4]` | 方括号格式 |
+| `#### ...` | `#### 42` | GSM8K 数据集格式 |
+
+### sympy 验证的三重比较
+
+`sympy_equal(pred_str, gold_str)` 进行三重验证，确保各种等价形式都能被识别：
+
+```
+"3/6" vs "1/2"
+
+第 1 重：sympy.simplify(pred - gold) == 0
+  → simplify(1/2 - 1/2) = 0  ✓
+
+第 2 重：pred_expr.equals(gold_expr)
+  → 处理 simplify 搞不定的复杂表达式
+
+第 3 重：数值比较 float(evalf())
+  → |0.5 - 0.5| < 1e-6  ✓ 兜底
+```
+
+能正确处理的等价对：
+- `3/6` vs `1/2` （分数化简）
+- `\frac{3}{4}` vs `0.75` （LaTeX vs 小数）
+- `x^2 + 2x + 1` vs `(x+1)^2` （多项式展开）
+- `3*x^2 + 2` vs `3x² + 2` （符号表示差异）
+
+### 奖励分数设计
+
+| 情况 | 默认奖励 | 说明 |
+|------|---------|------|
+| 答案正确 | `+1.0` | 核心信号 |
+| 答案错误 | `-0.5` | 负激励，比0更有效 |
+| 无法解析 | `-0.1` | 轻微惩罚，鼓励输出规范格式 |
+| 格式奖励 | `+0.1` | 有推理步骤 + `\boxed{}` 获得额外加分 |
+
+格式奖励是 RLVR 的重要补充——不仅要答对，还要**展示推理过程**，避免模型学会直接猜答案。
+
+### 示例配置（configs/grpo_math_verify.yaml）
+
+```yaml
+reward:
+  type: "math_verify"
+  correct_reward: 1.0
+  incorrect_reward: -0.5
+  format_reward: 0.1
+  unparseable_reward: -0.1
+
+data:
+  source: "list"
+  prompts:
+    - "What is 2 + 3 * 4? <answer>14</answer>"
+    - "Solve for x: 2x + 6 = 20. <answer>7</answer>"
+    - "What is 1/3 + 1/6? <answer>1/2</answer>"
+```
+
+---
+
 ## 当前 `src/` 中已有代码的问题
 
 | 文件 | 问题 |

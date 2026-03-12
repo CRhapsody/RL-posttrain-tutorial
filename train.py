@@ -14,7 +14,7 @@ from src.models.policy import PolicyModel
 from src.models.critic import CriticModel
 from src.models.reference import ReferenceModel
 from src.rollout.generator import RolloutGenerator
-from src.rewards.base import LengthReward, RuleBasedReward
+from src.rewards.base import LengthReward, RuleBasedReward, MathVerifyReward
 from src.data.dataset import PromptDataset, build_prompt_dataloader
 from src.algorithms.ppo import PPOAlgorithm
 from src.algorithms.grpo import GRPOAlgorithm
@@ -35,6 +35,13 @@ def build_reward_fn(cfg: dict):
         return RuleBasedReward(
             positive_keywords=cfg["reward"].get("positive_keywords", []),
             negative_keywords=cfg["reward"].get("negative_keywords", []),
+        )
+    elif reward_type == "math_verify":
+        return MathVerifyReward(
+            correct_reward=cfg["reward"].get("correct_reward", 1.0),
+            incorrect_reward=cfg["reward"].get("incorrect_reward", 0.0),
+            format_reward=cfg["reward"].get("format_reward", 0.0),
+            unparseable_reward=cfg["reward"].get("unparseable_reward", 0.0),
         )
     else:
         raise ValueError(f"Unknown reward type: {reward_type}")
